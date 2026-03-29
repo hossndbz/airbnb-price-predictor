@@ -5,6 +5,7 @@ import json
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 df = pd.read_csv("data/AB_US_2023.csv", low_memory=False)
 
@@ -54,6 +55,14 @@ rf = RandomForestRegressor(
 )
 rf.fit(X_train, y_train)
 
+y_true = np.log1p(df['price'])
+y_pred = rf.predict(X)
+y_pred_exp = np.expm1(y_pred)
+y_true_exp = np.expm1(y_true)
+
+rmse_fixed = np.sqrt(mean_squared_error(y_true_exp, y_pred_exp))
+mae_fixed  = mean_absolute_error(y_true_exp, y_pred_exp)
+
 joblib.dump(rf, 'model.pkl')
 joblib.dump(scaler, 'scaler.pkl')
 
@@ -65,3 +74,11 @@ columns = {
 }
 with open('columns.json', 'w') as f:
     json.dump(columns, f)
+
+# 学習後に保存
+metrics = {
+    "rmse": float(rmse_fixed),
+    "mae": float(mae_fixed)
+}
+with open("metrics.json", "w") as f:
+    json.dump(metrics, f)
