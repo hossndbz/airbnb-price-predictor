@@ -1,45 +1,67 @@
 import pandas as pd
 import numpy as np
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import OneHotEncoder
+import joblib
+import json
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
-df1 = pd.read_csv("data/AB_US_2020.csv", low_memory=False)
-df2 = pd.read_csv("data/AB_US_2023.csv", low_memory=False)
+df = pd.read_csv("data/AB_US_2023.csv", low_memory=False)
 
-# room_typeをベクトルに変換
-encoder = OneHotEncoder(sparse_output=False)
+df = df[df['price'] > 0]
+df = df[df['price'] < 1000]
+df = df[df['minimum_nights'] <= 30]
+df['reviews_per_month'] = df['reviews_per_month'].fillna(0)
 
-# データを学習させ、ワンホットベクトルに変換
-df_one_hot_encoded_room_type = pd.get_dummies(df1['room_type'])
+df_room_type = pd.get_dummies(df['room_type'])
+df_city = pd.get_dummies(df['city'])
+df_neighbourhood_group = pd.get_dummies(df['neighbourhood_group'])
+
+df['last_review'] = pd.to_datetime(df['last_review'])
+df['days_since_last_review'] = (pd.Timestamp('2023-12-31') - df['last_review']).dt.days
+df['days_since_last_review'] = df['days_since_last_review'].fillna(9999)
 
 X = pd.concat([
-    df1[['latitude']],
-    df1[['longitude']],
-    df_one_hot_encoded_room_type,
-    df1[['minimum_nights']],
-    df1[['number_of_reviews']]
+    df[['latitude']],
+    df[['longitude']],
+    df_room_type,
+    df[['minimum_nights']],
+    df[['number_of_reviews']],
+    df[['availability_365']],
+    df[['calculated_host_listings_count']],
+    df[['number_of_reviews_ltm']],
+    df_city,
+    df_neighbourhood_group,
+    df[['days_since_last_review']],
+    df[['reviews_per_month']]
 ], axis=1)
 
-# 数値を標準化（外れ値を除去しなくても学習が安定）
 scaler = StandardScaler()
-X[['latitude', 'longitude', 'minimum_nights', 'number_of_reviews']] = scaler.fit_transform(
-    X[['latitude', 'longitude', 'minimum_nights', 'number_of_reviews']]
+X[['latitude', 'longitude', 'minimum_nights', 'number_of_reviews', 'availability_365', 'calculated_host_listings_count', 'number_of_reviews_ltm']] = scaler.fit_transform(
+    X[['latitude', 'longitude', 'minimum_nights', 'number_of_reviews', 'availability_365', 'calculated_host_listings_count', 'number_of_reviews_ltm']]
 )
 
-y = np.log1p(df1['price'])
+y = np.log1p(df['price'])
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
 
-# モデル作成
-rf = RandomForestRegressor(n_estimators=400, random_state=42, max_depth=10, min_samples_leaf=5)
+rf = RandomForestRegressor(
+    n_estimators=50,
+    random_state=42,
+    max_depth=18,
+    min_samples_leaf=4,
+    n_jobs=-1
+)
 rf.fit(X_train, y_train)
 
-print("Training set score: {:.2f}".format(rf.score(X_train, y_train)))
-print("Test score : {:.2f}".format(rf.score(X_test, y_test)))
+joblib.dump(rf, 'model.pkl')
+joblib.dump(scaler, 'scaler.pkl')
 
-y_pred_test = np.expm1(rf.predict(X_test))
-
-print("pred :", np.round(y_pred_test, 2))
+columns = {
+    'room_type': list(df_room_type.columns),
+    'city': list(df_city.columns),
+    'neighbourhood_group': list(df_neighbourhood_group.columns),
+    'feature_order': list(X.columns)
+}
+with open('columns.json', 'w') as f:
+    json.dump(columns, f)
